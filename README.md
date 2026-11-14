@@ -1,11 +1,11 @@
 # RetainAI
 To develop a machine learning-based B2B SaaS MVP that identifies at-risk e-commerce customers before they churn, utilizing behavioral and transactional data to trigger automated retention strategies.
 
-## etainAI MVP (Mobile-First Edition)
+## RetainAI MVP (Mobile-First Edition)
 
-**Project Name:** RetainAI (Customer Churn & Win-Back Prediction Engine)
-**Objective:** To develop a machine learning-based B2B SaaS MVP that identifies at-risk e-commerce customers before they churn, utilizing behavioral and transactional data to trigger automated retention strategies.
-**Core Data Source:** eCommerce Customer Behavior Dataset (25 features capturing engagement and transaction history).
+*   **Project Name:** RetainAI (Customer Churn & Win-Back Prediction Engine)
+*   **Objective:** To develop a machine learning-based B2B SaaS MVP that identifies at-risk e-commerce customers before they churn, utilizing behavioral and transactional data to trigger automated retention strategies.
+*   **Core Data Source:** eCommerce Customer Behavior Dataset (25 features capturing engagement and transaction history).
 
 ### 1. Problem Statement & Solution Overview
 E-commerce businesses lose significant revenue to silent customer churn. Traditional retention methods rely on reactive measures (e.g., emailing a customer *after* 90 days of inactivity), which often occur too late in the customer journey. 
