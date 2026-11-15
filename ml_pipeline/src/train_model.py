@@ -1,4 +1,4 @@
-from ml_pipeline.src.logger import logger
+import json
 import pickle
 import sys
 from pathlib import Path
@@ -11,9 +11,13 @@ from sklearn.model_selection import train_test_split
 
 sys.path.append(str(Path.cwd()))
 
+from ml_pipeline.src.logger import logger  # NOQA E402
+
 project_dir = str(Path.cwd())
 Path(__file__).parent.parent.joinpath(
     project_dir).mkdir(parents=True, exist_ok=True)
+# Ensure artifacts directory exists
+Path(f"{project_dir}/ml_pipeline/artifacts").mkdir(parents=True, exist_ok=True)
 
 
 def load_and_clean_data(df, project_dir):
@@ -60,6 +64,8 @@ def load_and_clean_data(df, project_dir):
         df_encoded = df_encoded.rename(
             columns={"Churned": "Churn"})
 
+    # Ensure processed directory exists before saving
+    Path(f"{project_dir}/data/processed").mkdir(parents=True, exist_ok=True)
     df_encoded.to_csv(
         f"{project_dir}/data/processed/processed_data.csv", index=False
     )
@@ -104,9 +110,14 @@ def train_and_export(df, project_dir):
 
     # 6. Basic Evaluation
     y_pred = model.predict(X_test)
+
+    # Get metrics directly as a dictionary
+    report_dict = classification_report(y_test, y_pred, output_dict=True)
+    f1 = f1_score(y_test, y_pred)
+
     print("\nClassification Report (Test Data):")
     print(classification_report(y_test, y_pred))
-    print(f"F1 Score: {f1_score(y_test, y_pred):.4f}")
+    print(f"F1 Score: {f1:.4f}")
 
     # 7. Export Model and Feature Columns
     # We save feature_names to ensure the FastAPI backend
@@ -119,6 +130,18 @@ def train_and_export(df, project_dir):
 
     print(f"\nModel artifacts successfully exported to {artifacts_dir}")
 
+    # 8. Export Metrics as JSON
+    metrics_data = {
+        "f1_score": f1,
+        "classification_report": report_dict
+    }
+
+    metrics_path = f"{project_dir}/ml_pipeline/artifacts/metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump(metrics_data, f, indent=4)
+
+    print(f"Evaluation metrics successfully exported to {metrics_path}")
+
 
 if __name__ == "__main__":
     # Load the processed data
@@ -127,4 +150,4 @@ if __name__ == "__main__":
         df_cleaned = load_and_clean_data(df, project_dir)
         train_and_export(df_cleaned, project_dir)
     except FileNotFoundError:
-        print("Processed data not found. Run data_prep.py first.")
+        print("Processed data not found. Ensure raw data exists.")
