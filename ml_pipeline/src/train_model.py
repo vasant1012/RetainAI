@@ -1,5 +1,7 @@
+from ml_pipeline.src.logger import logger
 import pickle
-from venv import logger
+import sys
+from pathlib import Path
 
 import pandas as pd
 import xgboost as xgb
@@ -7,7 +9,11 @@ from imblearn.over_sampling import SMOTE
 from sklearn.metrics import classification_report, f1_score
 from sklearn.model_selection import train_test_split
 
-from logger import logger
+sys.path.append(str(Path.cwd()))
+
+project_dir = str(Path.cwd())
+Path(__file__).parent.parent.joinpath(
+    project_dir).mkdir(parents=True, exist_ok=True)
 
 
 def load_and_clean_data(df, project_dir):
@@ -51,10 +57,12 @@ def load_and_clean_data(df, project_dir):
 
     # Ensure target variable is correctly named for downstream tasks
     if "Churned" in df_encoded.columns:
-        df_encoded.rename(columns={"Churned": "Churn"}, inplace=True)
+        df_encoded = df_encoded.rename(
+            columns={"Churned": "Churn"})
 
     df_encoded.to_csv(
-        f'{project_dir}/data/processed/processed_ecommerce_data.csv', index=False)
+        f"{project_dir}/data/processed/processed_data.csv", index=False
+    )
     logger.info("Preprocessed data saved to data/processed/")
 
     return df_encoded
@@ -76,8 +84,7 @@ def train_and_export(df, project_dir):
     smote = SMOTE(random_state=42)
     X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
     print(
-        f"Resampled Target Distribution:\n{y_train_resampled.value_counts()}"
-    )
+        f"Resampled Target Distribution:\n{y_train_resampled.value_counts()}")
 
     # 5. Initialize and Train XGBoost
     # Using parameters optimized for tabular behavioral data
@@ -110,6 +117,14 @@ def train_and_export(df, project_dir):
     with open(artifacts_dir, "wb") as f:
         pickle.dump(artifacts, f)
 
-    print(
-        f"\nModel artifacts successfully exported to {artifacts_dir}"
-    )
+    print(f"\nModel artifacts successfully exported to {artifacts_dir}")
+
+
+if __name__ == "__main__":
+    # Load the processed data
+    try:
+        df = pd.read_csv(f"{project_dir}/data/raw/eCommerce_dataset.csv")
+        df_cleaned = load_and_clean_data(df, project_dir)
+        train_and_export(df_cleaned, project_dir)
+    except FileNotFoundError:
+        print("Processed data not found. Run data_prep.py first.")
