@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from app.core.ml_service import ml_service
-from app.schemas.pydantic_models import (
+from backend.core.ml_service import ml_service
+from backend.schemas.pydantic_models import (
     CustomerData,
     MetricsResponse,
     PredictionResponse,
