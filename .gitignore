@@ -249,7 +249,7 @@ cython_debug/
 tempCodeRunnerFile.py
 
 # model artifacts
-ml_pipeline/artifacts/*
+backend/ml_pipeline/artifacts/*
 
 # Ruff stuff:
 .ruff_cache/

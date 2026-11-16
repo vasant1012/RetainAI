@@ -3,7 +3,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
-from logger import logger
+
+from backend.logger import logger
 
 project_dir = str(Path.cwd())  # Adjust the path as needed
 Path(__file__).parent.parent.joinpath(

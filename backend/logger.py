@@ -11,7 +11,7 @@ log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
 
 # Log file path
-log_file_path = f"{log_dir}/hotel_review_workflow_{date}.log"
+log_file_path = f"{log_dir}/retain_ai_backend_{date}.log"
 
 # Logger setup
 logger = logging.getLogger(__name__)

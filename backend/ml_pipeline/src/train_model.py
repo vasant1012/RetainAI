@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 
 sys.path.append(str(Path.cwd()))
 
-from ml_pipeline.src.logger import logger  # NOQA E402
+from backend.logger import logger
 
 project_dir = str(Path.cwd())
 Path(__file__).parent.parent.joinpath(
