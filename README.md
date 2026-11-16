@@ -63,8 +63,7 @@ python train_model.py
 ### 3. Start the FastAPI Backend
 Serve the trained model locally:
 ```bash
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 *Access the auto-generated API documentation and test the endpoints at:* `http://localhost:8000/docs`
 
