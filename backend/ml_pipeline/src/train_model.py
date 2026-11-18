@@ -7,18 +7,10 @@ import pickle
 from datetime import datetime, timezone
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import xgboost as xgb
 from imblearn.over_sampling import SMOTE
-from sklearn.metrics import (
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
+from sklearn.metrics import classification_report, f1_score
 from sklearn.model_selection import train_test_split
 
 from backend.config import settings
@@ -147,6 +139,7 @@ def train_and_export(raw: pd.DataFrame) -> dict[str, Any]:
         max_depth=6,
         subsample=0.8,
         colsample_bytree=0.8,
+        use_label_encoder=False,
         eval_metric="logloss",
         random_state=42,
         n_jobs=-1,
