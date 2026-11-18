@@ -1,19 +1,18 @@
-"""Versioned request and response contracts for RetainAI API v1."""
-
+"""Pydantic contracts for the RetainAI API."""
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.core.retention_service import RiskLevel
-
 
 class CustomerFeatures(BaseModel):
-    """Raw customer characteristics accepted by the trained v1 model."""
+    """Raw customer values accepted by the model.
 
-    # Known fields are strongly typed. Additional fields are permitted here so
-    # artifacts trained with extra numeric features remain usable; MLService
-    # still rejects any name absent from that artifact's raw feature contract.
+    Known fields are typed for Swagger and validation. Extra fields are allowed so
+    a retrained pipeline can add a feature without requiring an immediate API rewrite.
+    The model service still rejects fields not present in the trained artifact.
+    """
+
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     age: float | None = Field(None, alias="Age", ge=0, le=120)
@@ -23,11 +22,20 @@ class CustomerFeatures(BaseModel):
     signup_quarter: str | None = Field(
         None, alias="Signup_Quarter", pattern=r"^(Q[1-4]|[1-4])$"
     )
+    membership_years: float | None = Field(None, alias="Membership_Years", ge=0)
+    login_frequency: float | None = Field(None, alias="Login_Frequency", ge=0)
     session_duration_avg: float | None = Field(
         None, alias="Session_Duration_Avg", ge=0
     )
     pages_per_session: float | None = Field(None, alias="Pages_Per_Session", ge=0)
+    cart_abandonment_rate: float | None = Field(
+        None, alias="Cart_Abandonment_Rate", ge=0, le=1
+    )
     wishlist_items: int | None = Field(None, alias="Wishlist_Items", ge=0)
+    total_purchases: int | None = Field(None, alias="Total_Purchases", ge=0)
+    average_order_value: float | None = Field(
+        None, alias="Average_Order_Value", ge=0
+    )
     days_since_last_purchase: float | None = Field(
         None, alias="Days_Since_Last_Purchase", ge=0
     )
@@ -35,7 +43,9 @@ class CustomerFeatures(BaseModel):
         None, alias="Discount_Usage_Rate", ge=0, le=1
     )
     returns_rate: float | None = Field(None, alias="Returns_Rate", ge=0, le=1)
-    email_open_rate: float | None = Field(None, alias="Email_Open_Rate", ge=0, le=1)
+    email_open_rate: float | None = Field(
+        None, alias="Email_Open_Rate", ge=0, le=1
+    )
     customer_service_calls: int | None = Field(
         None, alias="Customer_Service_Calls", ge=0
     )
@@ -50,9 +60,10 @@ class CustomerFeatures(BaseModel):
         None, alias="Payment_Method_Diversity", ge=0
     )
     credit_balance: float | None = Field(None, alias="Credit_Balance")
+    lifetime_value: float | None = Field(None, alias="Lifetime_Value", ge=0)
 
     @model_validator(mode="after")
-    def require_at_least_one_feature(self) -> "CustomerFeatures":
+    def require_a_feature(self) -> "CustomerFeatures":
         if not self.model_dump(exclude_none=True):
             raise ValueError("At least one customer feature must be supplied.")
         return self
@@ -63,6 +74,7 @@ class CustomerFeatures(BaseModel):
 
 class PredictionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     customer_id: str | None = Field(None, min_length=1, max_length=128)
     features: CustomerFeatures
 
@@ -71,9 +83,16 @@ class PredictionResponse(BaseModel):
     prediction_id: UUID
     customer_id: str | None
     churn_risk_score: float = Field(ge=0, le=100)
-    risk_level: RiskLevel
+    risk_level: str
     recommended_action: str
     model_version: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    version: str
+    model_ready: bool
 
 
 class MetricsResponse(BaseModel):
@@ -83,15 +102,6 @@ class MetricsResponse(BaseModel):
 
 class ModelInfoResponse(BaseModel):
     ready: bool
-    artifact_version: str | None
-    model_type: str | None
-    raw_feature_count: int
-    encoded_feature_count: int
+    model_version: str | None
+    trained_at_utc: str | None
     raw_features: list[str]
-
-
-class HealthResponse(BaseModel):
-    status: str
-    service: str
-    version: str
-    model_ready: bool

@@ -1,282 +1,93 @@
-<<<<<<< HEAD
-"""Artifact loading, inference preprocessing, and churn prediction."""
-
-from __future__ import annotations
-
-=======
->>>>>>> parent of fab9e90 (Refactor code structure for improved readability and maintainability)
-import json
-import math
-import pickle
+"""Load the saved training pipeline and make predictions."""
 from pathlib import Path
-<<<<<<< HEAD
 from typing import Any
 
+import joblib
+import numpy as np
 import pandas as pd
 
-from backend.config import settings
-from backend.core.exceptions import ArtifactError, InvalidFeatureError, ModelUnavailableError
-from backend.logger import logger
+from backend.config import METRICS_PATH, MODEL_PATH
 
 
 class MLService:
-    """Load a trusted RetainAI artifact and serve deterministic predictions."""
+    """Thin wrapper around one saved scikit-learn/XGBoost pipeline."""
 
     def __init__(
         self,
-        model_path: Path | None = None,
-        metrics_path: Path | None = None,
+        model_path: Path = MODEL_PATH,
+        metrics_path: Path = METRICS_PATH,
     ) -> None:
-        self.model_path = Path(model_path or settings.MODEL_PATH)
-        self.metrics_path = Path(metrics_path or settings.METRICS_PATH)
-        self.model: Any | None = None
-        self.pipeline: Any | None = None
-        self.feature_names: list[str] = []
-        self.raw_feature_names: list[str] = []
-        self.metrics: dict[str, Any] = {}
-        self.preprocessing: dict[str, Any] = {}
-        self.numeric_medians: dict[str, float] = {}
-        self.categorical_levels: dict[str, list[str]] = {}
-        self.artifact_version: str | None = None
-        self.model_type: str | None = None
-        self.loaded = False
-        self.load_error: str | None = None
+        self.model_path = Path(model_path)
+        self.metrics_path = Path(metrics_path)
+        self.artifact: dict[str, Any] | None = None
+
+    @property
+    def loaded(self) -> bool:
+        return self.artifact is not None
+
+    @property
+    def model_version(self) -> str:
+        if not self.artifact:
+            return "not-loaded"
+        return str(self.artifact.get("version", "unknown"))
 
     def load(self) -> None:
-        """Load and validate artifacts. Only load pickle files you trust."""
-        self.loaded = False
-        self.load_error = None
         if not self.model_path.is_file():
-            self._fail(f"Model artifact not found: {self.model_path}")
+            raise FileNotFoundError(
+                f"Model not found: {self.model_path}. Run the training command first."
+            )
 
-        try:
-            with self.model_path.open("rb") as file:
-                artifact = pickle.load(file)  # nosec B301: local trusted training artifact
-        except (pickle.UnpicklingError, EOFError, AttributeError, ImportError, IndexError) as exc:
-            self._fail("Model artifact is invalid, corrupt, or incompatible.", exc)
-        except OSError as exc:
-            self._fail("Model artifact could not be read.", exc)
-
+        artifact = joblib.load(self.model_path)
         if not isinstance(artifact, dict):
-            self._fail("Model artifact must be a dictionary.")
+            raise ValueError("Model artifact must be a dictionary.")
 
-        self.pipeline = artifact.get("pipeline")
-        self.model = artifact.get("model")
-        if self.pipeline is None and self.model is None:
-            self._fail("Model artifact is missing 'model' or 'pipeline'.")
+        required = {"pipeline", "raw_features", "version"}
+        missing = required - set(artifact)
+        if missing:
+            raise ValueError(f"Model artifact is missing: {sorted(missing)}")
+        if not hasattr(artifact["pipeline"], "predict_proba"):
+            raise ValueError("Saved pipeline does not support predict_proba().")
 
-        self.feature_names = [str(item) for item in artifact.get("feature_names", [])]
-        self.preprocessing = artifact.get("preprocessing") or {}
-        self.artifact_version = str(artifact.get("artifact_version") or "unknown")
-        self.model_type = str(artifact.get("model_type") or type(self.model).__name__)
-        self.raw_feature_names = [
-            str(item)
-            for item in (
-                self.preprocessing.get("raw_feature_names")
-                or artifact.get("raw_feature_names")
-                or []
-            )
-        ]
-        self.numeric_medians = {
-            str(name): float(value)
-            for name, value in (self.preprocessing.get("numeric_medians") or {}).items()
-        }
-        self.categorical_levels = {
-            str(name): [str(value) for value in values]
-            for name, values in (self.preprocessing.get("categorical_levels") or {}).items()
-        }
+        self.artifact = artifact
 
-        if not self.raw_feature_names:
-            self._fail("Artifact preprocessing metadata has no raw_feature_names.")
-        if self.pipeline is None:
-            if not self.feature_names:
-                self._fail("Legacy artifact has no encoded feature_names.")
-            if not self.preprocessing:
-                self._fail("Legacy artifact has no preprocessing metadata.")
+    def predict_churn(self, features: dict[str, Any]) -> float:
+        """Return churn probability from 0.0 to 1.0."""
+        if not self.artifact:
+            raise RuntimeError("Model is not loaded. Train or load the model first.")
+        if not features:
+            raise ValueError("At least one customer feature is required.")
 
-        self.metrics = self._load_metrics(artifact)
-        self.loaded = True
-        logger.info(
-            "Model loaded: version=%s type=%s raw_features=%d model_features=%d",
-            self.artifact_version,
-            self.model_type,
-            len(self.raw_feature_names),
-            len(self.feature_names),
-        )
-
-    def _fail(self, message: str, cause: Exception | None = None) -> None:
-        self.load_error = message
-        if cause is None:
-            raise ArtifactError(message)
-        raise ArtifactError(message) from cause
-
-    def _load_metrics(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        if self.metrics_path.is_file():
-            try:
-                value = json.loads(self.metrics_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as exc:
-                self._fail("Metrics artifact is invalid or unreadable.", exc)
-            if not isinstance(value, dict):
-                self._fail("Metrics artifact must contain a JSON object.")
-            return value
-        embedded = artifact.get("metrics")
-        if isinstance(embedded, dict):
-            logger.warning("metrics.json missing; using metrics embedded in model artifact.")
-            return dict(embedded)
-        self._fail("No valid metrics artifact is available.")
-        return {}
-
-    def _validate_customer_features(self, values: dict[str, Any]) -> None:
-        if not isinstance(values, dict):
-            raise InvalidFeatureError("customer features must be a dictionary.")
-        if not values:
-            raise InvalidFeatureError("customer features cannot be empty.")
-        unknown = sorted(set(values) - set(self.raw_feature_names))
+        raw_features = list(self.artifact["raw_features"])
+        unknown = sorted(set(features) - set(raw_features))
         if unknown:
-            raise InvalidFeatureError(f"Unknown customer feature(s): {unknown}")
+            raise ValueError(f"Unknown customer feature(s): {unknown}")
 
-    def _raw_frame(self, values: dict[str, Any]) -> pd.DataFrame:
-        return pd.DataFrame(
-            [{name: values.get(name, pd.NA) for name in self.raw_feature_names}]
-        )
-
-    def preprocess_customer_features(self, values: dict[str, Any]) -> pd.DataFrame:
-        """Reproduce legacy 1.1 training transformations exactly."""
-        self._validate_customer_features(values)
-        frame = self._raw_frame(values)
-
-        for column, median in self.numeric_medians.items():
-            frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(median)
-
-        categorical_columns = list(self.categorical_levels)
-        for column, levels in self.categorical_levels.items():
-            # Fixed categories are essential: one-row get_dummies(drop_first=True)
-            # would otherwise erase every supplied category.
-            normalized = frame[column].astype("string")
-            frame[column] = pd.Categorical(normalized, categories=levels)
-
-        if categorical_columns:
-            frame = pd.get_dummies(
-                frame,
-                columns=categorical_columns,
-                drop_first=True,
-                dtype=int,
-            )
-
-        frame = frame.reindex(columns=self.feature_names, fill_value=0)
-        non_numeric = [
-            column
-            for column in frame.columns
-            if not pd.api.types.is_numeric_dtype(frame[column])
-        ]
-        if non_numeric:
-            raise InvalidFeatureError(
-                f"Preprocessing left non-numeric model features: {non_numeric}"
-            )
-        return frame
-
-    def predict_churn(self, values: dict[str, Any]) -> float:
-        if not self.loaded:
-            raise ModelUnavailableError("The churn model is not ready.")
-        self._validate_customer_features(values)
-        try:
-            if self.pipeline is not None:
-                probabilities = self.pipeline.predict_proba(self._raw_frame(values))
-            else:
-                probabilities = self.model.predict_proba(
-                    self.preprocess_customer_features(values)
-                )
-            probability = float(probabilities[0][1])
-        except InvalidFeatureError:
-            raise
-        except (ValueError, TypeError, IndexError, AttributeError) as exc:
-            logger.exception("Model prediction failed.")
-            raise InvalidFeatureError(
-                "The supplied customer features could not be processed."
-            ) from exc
-
-        if not math.isfinite(probability) or not 0 <= probability <= 1:
-            raise ModelUnavailableError("The model returned an invalid probability.")
-        return round(probability * 100, 2)
+        # Missing values are intentionally left as NaN. The saved pipeline applies
+        # exactly the same imputers and encoders used during training.
+        row = {name: features.get(name, np.nan) for name in raw_features}
+        frame = pd.DataFrame([row], columns=raw_features)
+        probability = float(self.artifact["pipeline"].predict_proba(frame)[0, 1])
+        return max(0.0, min(1.0, probability))
 
     def get_metrics(self) -> dict[str, Any]:
-        if not self.loaded:
-            raise ModelUnavailableError("Model metrics are not ready.")
-        return dict(self.metrics)
+        if not self.artifact:
+            raise RuntimeError("Model is not loaded.")
+        return dict(self.artifact.get("metrics", {}))
 
     def get_model_info(self) -> dict[str, Any]:
+        if not self.artifact:
+            return {
+                "ready": False,
+                "model_version": None,
+                "trained_at_utc": None,
+                "raw_features": [],
+            }
         return {
-            "ready": self.loaded,
-            "artifact_version": self.artifact_version,
-            "model_type": self.model_type,
-            "raw_feature_count": len(self.raw_feature_names),
-            "encoded_feature_count": len(self.feature_names),
-            "raw_features": list(self.raw_feature_names),
+            "ready": True,
+            "model_version": self.model_version,
+            "trained_at_utc": self.artifact.get("trained_at_utc"),
+            "raw_features": list(self.artifact["raw_features"]),
         }
-=======
-
-import pandas as pd
 
 
-class MLService:
-    def __init__(self):
-        self.model = None
-        self.feature_names = None
-        self.metrics = None
-
-        # Resolve paths relative to the backend directory
-        self.project_dir = Path(__file__).resolve().parent.parent.parent.parent
-        self.artifacts_dir = self.project_dir / "ml_pipeline" / "artifacts"
-
-        self._load_artifacts()
-
-    def _load_artifacts(self):
-        model_path = self.artifacts_dir / "xgboost_model.pkl"
-        metrics_path = self.artifacts_dir / "metrics.json"
-
-        try:
-            # Load Model
-            with open(model_path, "rb") as f:
-                artifacts = pickle.load(f)
-                self.model = artifacts["model"]
-                self.feature_names = artifacts["feature_names"]
-
-            # Load Metrics
-            with open(metrics_path, "r") as f:
-                self.metrics = json.load(f)
-
-            print(
-                "Successfully loaded XGBoost model and metrics from "
-                f"{self.artifacts_dir}"
-            )
-        except FileNotFoundError as e:
-            print(
-                "Error loading artifacts: "
-                f"{e}. Ensure train_model.py has been run."
-            )
-
-    def predict_churn(self, customer_features: dict) -> float:
-        if not self.model:
-            raise RuntimeError("Model is not loaded.")
-
-        # Convert dictionary to DataFrame
-        df = pd.DataFrame([customer_features])
-
-        # Ensure all required features are present and in the exact order
-        # Missing columns will be filled with 0 (or you could use medians)
-        for col in self.feature_names:
-            if col not in df.columns:
-                df[col] = 0
-
-        df = df[self.feature_names]
-
-        # Get probability of class 1 (Churn)
-        churn_prob = self.model.predict_proba(df)[0][1]
-
-        # Return as a percentage score (0-100)
-        return round(float(churn_prob) * 100, 2)
-
-
-# Instantiate as a singleton to be used across endpoints
 ml_service = MLService()
->>>>>>> parent of fab9e90 (Refactor code structure for improved readability and maintainability)

@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+logs/
+*.log
+backend/ml_pipeline/artifacts/*.joblib

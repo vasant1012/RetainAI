@@ -1,0 +1,29 @@
+{
+  "customer_id": "CUST-10001",
+  "features": {
+    "Age": 35,
+    "Gender": "Male",
+    "Country": "India",
+    "City": "Chennai",
+    "Signup_Quarter": "Q2",
+    "Membership_Years": 4,
+    "Login_Frequency": 12,
+    "Session_Duration_Avg": 18.5,
+    "Pages_Per_Session": 7.2,
+    "Cart_Abandonment_Rate": 0.28,
+    "Wishlist_Items": 4,
+    "Total_Purchases": 27,
+    "Average_Order_Value": 1450.75,
+    "Days_Since_Last_Purchase": 42,
+    "Discount_Usage_Rate": 0.35,
+    "Returns_Rate": 0.08,
+    "Email_Open_Rate": 0.62,
+    "Customer_Service_Calls": 2,
+    "Product_Reviews_Written": 3,
+    "Social_Media_Engagement_Score": 6.8,
+    "Mobile_App_Usage": 12.4,
+    "Payment_Method_Diversity": 2,
+    "Credit_Balance": 350.75,
+    "Lifetime_Value": 42500.5
+  }
+}

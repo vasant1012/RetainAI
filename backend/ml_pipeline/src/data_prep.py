@@ -1,48 +1,43 @@
-"""Deterministic data-quality inspection for the RetainAI raw dataset."""
+"""Inspect the raw dataset without duplicating model preprocessing."""
+import json
+from typing import Any
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 
-from backend.config import settings
-from backend.logger import logger
+from backend.config import DATA_SUMMARY_PATH, RAW_DATA_PATH, ensure_directories
+
+TARGET_CANDIDATES = ("Churned", "Churn")
 
 
-def inspect_data(dataframe: pd.DataFrame) -> dict[str, object]:
-    if dataframe.empty:
-        raise ValueError("Raw dataset is empty.")
-    if "Churned" not in dataframe.columns and "Churn" not in dataframe.columns:
-        raise ValueError("Raw dataset must contain 'Churned' or 'Churn'.")
-
-    target = "Churned" if "Churned" in dataframe.columns else "Churn"
-    logger.info("Dataset shape: %s", dataframe.shape)
-    logger.info("Sample rows:\n%s", dataframe.sample(min(5, len(dataframe)), random_state=42))
-    logger.info("Missing values:\n%s", dataframe.isnull().sum())
-
-    settings.CHURN_PLOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    figure, axis = plt.subplots(figsize=(6, 4))
-    sns.countplot(data=dataframe, x=target, hue=target, palette="Set2", ax=axis, legend=False)
-    axis.set_title("Distribution of Churn (Target Variable)")
-    figure.tight_layout()
-    figure.savefig(settings.CHURN_PLOT_PATH)
-    plt.close(figure)
-
+def build_summary(dataframe: pd.DataFrame) -> dict[str, Any]:
+    target = next((name for name in TARGET_CANDIDATES if name in dataframe), None)
     return {
-        "rows": len(dataframe),
-        "columns": len(dataframe.columns),
-        "target": target,
-        "missing_values": int(dataframe.isna().sum().sum()),
-        "plot_path": str(settings.CHURN_PLOT_PATH),
+        "rows": int(len(dataframe)),
+        "columns": int(len(dataframe.columns)),
+        "column_names": dataframe.columns.tolist(),
+        "data_types": {name: str(dtype) for name, dtype in dataframe.dtypes.items()},
+        "missing_values": {
+            name: int(count) for name, count in dataframe.isna().sum().items()
+        },
+        "target_column": target,
+        "target_distribution": (
+            {
+                str(label): int(count)
+                for label, count in dataframe[target].value_counts(dropna=False).items()
+            }
+            if target
+            else {}
+        ),
     }
 
 
 def main() -> None:
-    if not settings.RAW_DATA_PATH.is_file():
-        raise FileNotFoundError(f"Raw dataset not found: {settings.RAW_DATA_PATH}")
-    summary = inspect_data(pd.read_csv(settings.RAW_DATA_PATH))
-    logger.info("Data inspection completed: %s", summary)
+    if not RAW_DATA_PATH.is_file():
+        raise FileNotFoundError(f"Dataset not found: {RAW_DATA_PATH}")
+    ensure_directories()
+    summary = build_summary(pd.read_csv(RAW_DATA_PATH))
+    DATA_SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(f"Saved dataset summary to {DATA_SUMMARY_PATH}")
 
 
 if __name__ == "__main__":

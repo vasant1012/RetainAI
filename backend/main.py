@@ -1,109 +1,99 @@
-"""FastAPI application factory and model lifecycle."""
-
-from __future__ import annotations
-
+"""FastAPI application for RetainAI."""
+import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.endpoints import router as api_router
-from backend.config import Settings, settings
-from backend.core.exceptions import ArtifactError
-from backend.core.ml_service import MLService
-from backend.logger import logger
-from backend.schemas.pydantic_models import HealthResponse
+from backend.config import API_PREFIX, APP_NAME, APP_VERSION, CORS_ORIGINS
+from backend.core.ml_service import ml_service
+from backend.schemas.pydantic_models import (
+    HealthResponse,
+    MetricsResponse,
+    ModelInfoResponse,
+    PredictionRequest,
+    PredictionResponse,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("retainai")
 
 
-def create_app(app_settings: Settings | None = None) -> FastAPI:
-    active_settings = app_settings or settings
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        ml_service.load()
+        logger.info("Model loaded: version %s", ml_service.model_version)
+    except Exception as exc:
+        # The API can still expose docs and health before the first training run.
+        logger.warning("Model is not ready: %s", exc)
+    yield
 
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        service = MLService(
-            model_path=active_settings.MODEL_PATH,
-            metrics_path=active_settings.METRICS_PATH,
-        )
-        app.state.ml_service = service
-        app.state.model_startup_error = None
-        try:
-            service.load()
-        except ArtifactError as exc:
-            app.state.model_startup_error = str(exc)
-            logger.error("Model startup validation failed: %s", exc)
-            if active_settings.REQUIRE_MODEL_ON_STARTUP:
-                raise
-        yield
 
-    application = FastAPI(
-        title=active_settings.PROJECT_NAME,
-        version=active_settings.VERSION,
-        description="Customer churn risk and retention recommendation API.",
-        lifespan=lifespan,
+app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"service": APP_NAME, "version": APP_VERSION, "docs": "/docs"}
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        service=APP_NAME,
+        version=APP_VERSION,
+        model_ready=ml_service.loaded,
     )
-    application.state.settings = active_settings
 
-    origins = active_settings.BACKEND_CORS_ORIGINS
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials="*" not in origins,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+
+def _risk_guidance(score: float) -> tuple[str, str]:
+    if score >= 70:
+        return "high", "Contact the customer now with a targeted retention offer."
+    if score >= 40:
+        return "medium", "Add the customer to a proactive engagement campaign."
+    return "low", "Continue normal engagement and monitor behavior."
+
+
+@app.post(f"{API_PREFIX}/predict", response_model=PredictionResponse)
+def predict(request: PredictionRequest) -> PredictionResponse:
+    try:
+        probability = ml_service.predict_churn(request.features.to_model_payload())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    score = round(probability * 100, 2)
+    risk_level, action = _risk_guidance(score)
+    return PredictionResponse(
+        prediction_id=uuid4(),
+        customer_id=request.customer_id,
+        churn_risk_score=score,
+        risk_level=risk_level,
+        recommended_action=action,
+        model_version=ml_service.model_version,
     )
 
-    @application.middleware("http")
-    async def request_context(request: Request, call_next) -> Response:
-        request_id = request.headers.get("X-Request-ID") or str(uuid4())
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        return response
 
-    @application.get("/", tags=["system"])
-    def root() -> dict[str, str]:
-        return {
-            "service": active_settings.PROJECT_NAME,
-            "version": active_settings.VERSION,
-            "docs": "/docs",
-        }
-
-    @application.get("/health/live", response_model=HealthResponse, tags=["system"])
-    def liveness(request: Request) -> HealthResponse:
-        service = request.app.state.ml_service
-        return HealthResponse(
-            status="ok",
-            service=active_settings.PROJECT_NAME,
-            version=active_settings.VERSION,
-            model_ready=service.loaded,
-        )
-
-    @application.get(
-        "/health/ready",
-        response_model=HealthResponse,
-        tags=["system"],
-        responses={503: {"model": HealthResponse}},
-    )
-    def readiness(request: Request, response: Response) -> HealthResponse:
-        service = request.app.state.ml_service
-        if not service.loaded:
-            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return HealthResponse(
-            status="ready" if service.loaded else "not_ready",
-            service=active_settings.PROJECT_NAME,
-            version=active_settings.VERSION,
-            model_ready=service.loaded,
-        )
-
-    application.include_router(
-        api_router,
-        prefix=active_settings.API_V1_STR,
-        tags=["prediction"],
-    )
-    return application
+@app.get(f"{API_PREFIX}/metrics", response_model=MetricsResponse)
+def metrics() -> MetricsResponse:
+    try:
+        values = ml_service.get_metrics()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return MetricsResponse(model_version=ml_service.model_version, metrics=values)
 
 
-app = create_app()
+@app.get(f"{API_PREFIX}/model/info", response_model=ModelInfoResponse)
+def model_info() -> ModelInfoResponse:
+    return ModelInfoResponse(**ml_service.get_model_info())
