@@ -1,86 +1,290 @@
-# RetainAI: Customer Churn & Win-Back Prediction Engine
+# RetainAI: Customer Churn and Win-Back Prediction Engine
 
-RetainAI is a machine learning-based B2B SaaS MVP designed to identify at-risk e-commerce customers before they churn. By analyzing behavioral and transactional data, it calculates a real-time "Flight Risk Score," allowing marketing teams to automate targeted retention incentives. 
+RetainAI is a machine-learning-based B2B SaaS MVP designed to identify e-commerce customers who are at risk of churning. It analyzes behavioral and transactional signals, calculates a 0–100 churn-risk score, and maps that score to a retention recommendation that marketing teams can act on.
 
-This monorepo contains the machine learning pipeline, the RESTful prediction API, and the cross-platform mobile frontend.
+This monorepo contains:
 
----
+- the raw and processed datasets;
+- an exploratory data analysis and visualization workflow;
+- an XGBoost training pipeline with SMOTE-based class balancing;
+- versioned model, preprocessing, and evaluation artifacts;
+- a FastAPI prediction backend;
+- a React Native/Expo frontend that is planned for Phase 4.
 
-## 🛠 Tech Stack & Environment
-* **OS & IDE**: Ubuntu 22.04 LTS, Visual Studio Code (augmented with Ollama and the Continue extension for local AI coding assistance).
-* **Data & ML**: Python (Pandas, Scikit-learn, Imbalanced-learn/SMOTE, XGBoost).
-* **Backend Serving**: FastAPI, Uvicorn, Pydantic.
-* **Frontend Application**: React Native, Expo, NativeWind (Tailwind CSS) — *In Progress*.
-
----
-
-## 🚀 Project Status: Phases 1–3 Completed
-
-### Phase 1: Data Strategy (Completed)
-* Loaded the raw `eCommerce-dataset.csv`.
-* Handled widespread missing values across 14 numeric columns using median imputation to maintain robust distributions.
-* Performed one-hot encoding on categorical text fields (Gender, Country, City, Signup_Quarter).
-* Exported the cleaned, ML-ready dataset to `data/processed/processed_data.csv`.
-
-### Phase 2: Machine Learning Pipeline (Completed)
-* Handled the moderate class imbalance (approx. 35,000 retained vs. 14,500 churned) using SMOTE on the training split.
-* Trained an optimized XGBoost classifier (`max_depth=6`, `learning_rate=0.05`).
-* Generated evaluation metrics (F1 Score, Classification Report) on the test split.
-* Exported the trained model, feature names array, and `metrics.json` directly into the `ml_pipeline/artifacts/` directory for backend consumption.
-
-### Phase 3: Backend API (Completed)
-* Built a high-performance REST API using FastAPI.
-* Created the `MLService` singleton to load the `.pkl` and `.json` artifacts into memory securely on application startup.
-* Configured CORS middleware for seamless integration with the upcoming mobile client.
-* **Endpoints Configured:**
-  * `POST /api/predict`: Accepts a JSON payload of a customer's behavioral features, dynamically shapes it to the exact training columns, and returns a 0-100 `churn_risk_score` with an automated marketing action.
-  * `GET /api/metrics`: Returns the JSON metadata payload containing the model's F1-score and classification report.
+> **Current state:** Phases 1 and 2 are complete. Phase 3A backend implementation is complete. Phase 3B backend hardening and validation is in progress. Frontend integration should begin only after the backend API contract and automated tests are stable.
 
 ---
 
-## 💻 Local Setup & Execution Guide
+## Product Goal
 
-### 1. Repository Initialization
-Clone the repository and initialize the Python virtual environment:
+RetainAI converts customer data into an actionable retention signal:
+
+```text
+Raw customer behavior and transaction data
+                    ↓
+         Validation and preprocessing
+                    ↓
+          XGBoost churn classifier
+                    ↓
+          Churn probability (0–100)
+                    ↓
+        Risk level and retention action
+```
+
+The ML model is responsible for estimating churn probability. Risk bands and marketing recommendations are business rules layered on top of that probability and should remain independently configurable.
+
+---
+
+## Technology Stack
+
+- **Development environment:** Ubuntu 22.04 LTS and Visual Studio Code
+- **Local coding assistance:** Ollama with the Continue extension
+- **Language:** Python 3.10+
+- **Data processing:** Pandas and NumPy
+- **Visualization:** Matplotlib and Seaborn
+- **Machine learning:** Scikit-learn, Imbalanced-learn/SMOTE, and XGBoost
+- **Backend API:** FastAPI, Uvicorn, and Pydantic
+- **Testing:** Pytest
+- **Frontend:** React Native, Expo, TypeScript, and NativeWind, planned for Phase 4
+
+---
+
+## Repository Structure
+
+```text
+RetainAI/
+├── .gitignore
+├── LICENSE
+├── README.md
+├── backend/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── logger.py
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── endpoints.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   └── ml_service.py
+│   ├── ml_pipeline/
+│   │   ├── __init__.py
+│   │   ├── artifacts/
+│   │   │   ├── metrics.json
+│   │   │   ├── xgboost_model.pkl
+│   │   │   └── churn_distribution.png
+│   │   ├── notebooks/
+│   │   │   └── analysis.ipynb
+│   │   └── src/
+│   │       ├── __init__.py
+│   │       ├── data_prep.py
+│   │       └── train_model.py
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   └── pydantic_models.py
+│   └── tests/
+│       ├── __init__.py
+│       └── test_ml_services.py
+├── data/
+│   ├── raw/
+│   │   └── eCommerce_dataset.csv
+│   └── processed/
+│       └── processed_data.csv
+├── frontend/
+│   ├── App.tsx
+│   ├── app.json
+│   ├── index.ts
+│   ├── package.json
+│   ├── tailwind.config.js
+│   ├── tsconfig.json
+│   └── assets/
+└── logs/
+```
+
+Generated `__pycache__` directories and `.pyc` files are intentionally omitted from this structure and should not be committed.
+
+---
+
+### Model Artifact Contract
+
+The model artifact currently contains:
+
+```python
+{
+    "model": ...,                     # fitted XGBClassifier
+    "feature_names": [...],          # exact encoded training feature order
+    "metrics": {...},                # evaluation metrics
+    "preprocessing": {
+        "numeric_medians": {...},
+        "categorical_levels": {...},
+        "raw_feature_names": [...]
+    },
+    "target_column": "Churn",
+    "model_type": "XGBClassifier",
+    "artifact_version": "1.1.0"
+}
+```
+
+This contract allows the inference service to reuse the preprocessing information produced during training.
+
+## Local Setup
+
+### 1. Clone and enter the repository
+
 ```bash
-git clone <your-repo-url>
-cd retain-ai-mvp
+git clone <your-repository-url>
+cd RetainAI
+```
+
+All Python commands in this README assume the current directory is the `RetainAI` project root.
+
+### 2. Create and activate a virtual environment
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
+```
+
+On Windows PowerShell:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+### 3. Install backend and ML dependencies
+
+```bash
+python -m pip install --upgrade pip
 pip install -r backend/requirements.txt
 ```
 
-### 2. Run the ML Pipeline
-To retrain the model and regenerate the serialized artifacts:
-```bash
-cd ml_pipeline/src
-# 1. Clean data and engineer features
-python data_prep.py
-# 2. Apply SMOTE, train XGBoost, and export artifacts
-python train_model.py
-```
+Ensure `pytest` is present in the requirements file or install it for local validation:
 
-### 3. Start the FastAPI Backend
-Serve the trained model locally:
 ```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+pip install pytest
 ```
-*Access the auto-generated API documentation and test the endpoints at:* `http://localhost:8000/docs`
 
 ---
 
-## 🗺 Roadmap: Upcoming Phases
+## Data Inspection
 
-### Phase 4: Frontend GUI (React Native + NativeWind)
-* **Goal**: Build a cross-platform mobile dashboard to consume the FastAPI endpoints.
-* **Tasks**:
-  * Scaffold custom UI components (Risk Score Cards, User List, Metrics Dashboard).
-  * Configure Axios to fetch real-time predictions from `POST /api/predict` and render "High Risk" flags.
-  * Implement Tailwind utility classes via NativeWind for a clean, modern SaaS aesthetic.
+Run from the project root:
 
-### Phase 5: Refinement & Polish
-* **Goal**: End-to-end local testing and preparation for deployment.
-* **Tasks**:
-  * Ensure API edge-case handling (e.g., missing keys in the JSON payload gracefully defaulting to medians/zeros).
-  * Tune mobile UI responsiveness across different simulated device screens.
-  * Containerize the backend with Docker for seamless production deployment.
+```bash
+python -m backend.ml_pipeline.src.data_prep
+```
+
+Expected input:
+
+```text
+data/raw/eCommerce_dataset.csv
+```
+
+Expected output:
+
+```text
+backend/ml_pipeline/artifacts/churn_distribution.png
+```
+
+The command also logs dataset shape, deterministic sample records, missing-value counts, and target distribution.
+
+---
+
+## Model Training
+
+Run the complete preprocessing and training workflow from the project root:
+
+```bash
+python -m backend.ml_pipeline.src.train_model
+```
+
+The command performs:
+
+```text
+Raw CSV
+  → schema and target validation
+  → numeric conversion and median imputation
+  → categorical encoding
+  → processed CSV export
+  → stratified train/test split
+  → SMOTE on training data only
+  → XGBoost training
+  → test-set evaluation
+  → artifact export
+```
+
+Expected outputs:
+
+```text
+data/processed/processed_data.csv
+backend/ml_pipeline/artifacts/xgboost_model.pkl
+backend/ml_pipeline/artifacts/metrics.json
+```
+
+Whenever preprocessing or artifact structure changes, retrain the model before starting the backend.
+
+---
+
+## Running Tests
+
+Run the MLService integration tests from the project root:
+
+```bash
+pytest backend/tests/test_ml_services.py -v --tb=short
+```
+
+For the complete backend test suite, once endpoint tests are added:
+
+```bash
+pytest backend/tests -v --tb=short
+```
+
+The MLService test suite reads the real trained model artifact and raw dataset. Run the training command before running these tests.
+
+---
+
+## Starting the FastAPI Backend
+
+Start Uvicorn from the project root:
+
+```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+---
+
+## Prediction Flow
+
+The intended API flow is:
+
+```text
+Raw customer JSON
+        ↓
+Pydantic request validation
+        ↓
+MLService raw-field validation
+        ↓
+Saved median imputation
+        ↓
+Categorical encoding
+        ↓
+Exact trained-feature alignment
+        ↓
+XGBoost predict_proba()
+        ↓
+Churn-risk score (0–100)
+        ↓
+Retention policy and recommendation
+        ↓
+API response
+```
+
+The frontend must send raw customer fields. It must not send pre-encoded columns such as city or country dummy variables.
+
+---
+
+## License
+
+See `LICENSE` for licensing information.

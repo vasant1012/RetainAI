@@ -12,8 +12,8 @@ TARGET_CANDIDATES = ("Churned", "Churn")
 def build_summary(dataframe: pd.DataFrame) -> dict[str, Any]:
     target = next((name for name in TARGET_CANDIDATES if name in dataframe), None)
     return {
-        "rows": int(len(dataframe)),
-        "columns": int(len(dataframe.columns)),
+        "rows": int(len(dataframe)),  # noqa: RUF046
+        "columns": int(len(dataframe.columns)),  # noqa: RUF046
         "column_names": dataframe.columns.tolist(),
         "data_types": {name: str(dtype) for name, dtype in dataframe.dtypes.items()},
         "missing_values": {

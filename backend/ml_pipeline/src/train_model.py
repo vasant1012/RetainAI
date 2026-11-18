@@ -161,7 +161,7 @@ def train_and_save(
         "target_column": target,
         "threshold": 0.5,
         "version": APP_VERSION,
-        "trained_at_utc": datetime.now(timezone.utc).isoformat(),
+        "trained_at_utc": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
         "metrics": metrics,
     }
 
