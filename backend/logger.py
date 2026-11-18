@@ -1,51 +1,39 @@
-import logging
-import os
-import sys
-from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
+"""Application logging with console and rotating-file handlers."""
 
-sys.path.append(str(Path.cwd()))
+import logging
+from logging.handlers import RotatingFileHandler
 
 from backend.config import settings
 
-now = datetime.now()
-date = now.strftime("%Y-%m-%d")
 
-# Ensure 'logs' folder exists
-log_dir = f"{settings.BASE_DIR}/logs"
-os.makedirs(log_dir, exist_ok=True)
+def configure_logging() -> logging.Logger:
+    logger = logging.getLogger("retainai")
+    logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
+    logger.propagate = False
+    if logger.handlers:
+        return logger
 
-# Log file path
-log_file_path = f"{log_dir}/retain_ai_backend_{date}.log"
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logger.addHandler(console)
 
-# Logger setup
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+    try:
+        settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            settings.LOGS_DIR / "retain_ai_backend.log",
+            maxBytes=5_000_000,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError:
+        logger.warning("File logging could not be initialized.")
 
-# Log format
-formatter = logging.Formatter(
-    fmt=(
-        "%(asctime)s | %(filename)s | %(module)s | line:%(lineno)d | "
-        "%(levelname)s | %(message)s"
-    ),
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+    return logger
 
-file_handler = TimedRotatingFileHandler(
-    filename=log_file_path,
-    when="midnight",
-    backupCount=0,  # Keep only the current day's log
-    encoding="utf-8",
-    utc=False,
-)
-file_handler.setFormatter(formatter)
 
-# Stream Handler (console)
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-
-# Add handlers to the logger, ensuring no duplicates
-if not logger.handlers:
-    logger.addHandler(stream_handler)
-    logger.addHandler(file_handler)
+logger = configure_logging()

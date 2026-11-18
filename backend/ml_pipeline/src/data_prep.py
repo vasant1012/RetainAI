@@ -1,94 +1,49 @@
-"""Dataset inspection and exploratory visualization for RetainAI."""
+"""Deterministic data-quality inspection for the RetainAI raw dataset."""
 
-import sys
-from pathlib import Path
-
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-# Allow both module execution and direct script execution.
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from backend.config import settings
 from backend.logger import logger
 
-TARGET_COLUMN = "Churned"
 
+def inspect_data(dataframe: pd.DataFrame) -> dict[str, object]:
+    if dataframe.empty:
+        raise ValueError("Raw dataset is empty.")
+    if "Churned" not in dataframe.columns and "Churn" not in dataframe.columns:
+        raise ValueError("Raw dataset must contain 'Churned' or 'Churn'.")
 
-def validate_raw_data(df: pd.DataFrame) -> None:
-    """Validate the minimum schema required for data inspection."""
-    if df.empty:
-        raise ValueError("The raw dataset is empty.")
+    target = "Churned" if "Churned" in dataframe.columns else "Churn"
+    logger.info("Dataset shape: %s", dataframe.shape)
+    logger.info("Sample rows:\n%s", dataframe.sample(min(5, len(dataframe)), random_state=42))
+    logger.info("Missing values:\n%s", dataframe.isnull().sum())
 
-    if TARGET_COLUMN not in df.columns:
-        raise ValueError(
-            f"Required target column '{TARGET_COLUMN}' was not found. "
-            f"Available columns: {df.columns.tolist()}"
-        )
-
-
-def inspect_data(
-    df: pd.DataFrame,
-    plot_path: Path | None = None,
-) -> Path:
-    """Inspect raw data and save the churn-distribution visualization."""
-    validate_raw_data(df)
-
-    output_path = plot_path or settings.CHURN_DISTRIBUTION_PATH
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logger.info("Dataset shape: %s", df.shape)
-    logger.info("Dataset columns: %s", df.columns.tolist())
-
-    sample_size = min(5, len(df))
-    logger.info(
-        "Sample records:\n%s",
-        df.sample(n=sample_size, random_state=42).to_string(index=False),
-    )
-    logger.info("Missing values per feature:\n%s", df.isna().sum().to_string())
-    logger.info(
-        "Target distribution:\n%s",
-        df[TARGET_COLUMN].value_counts(dropna=False).sort_index().to_string(),
-    )
-
+    settings.CHURN_PLOT_PATH.parent.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=(6, 4))
-    sns.countplot(
-        data=df,
-        x=TARGET_COLUMN,
-        hue=TARGET_COLUMN,
-        palette="Set2",
-        legend=False,
-        ax=axis,
-    )
+    sns.countplot(data=dataframe, x=target, hue=target, palette="Set2", ax=axis, legend=False)
     axis.set_title("Distribution of Churn (Target Variable)")
-    axis.set_xlabel("Churned")
-    axis.set_ylabel("Customer Count")
     figure.tight_layout()
-    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    figure.savefig(settings.CHURN_PLOT_PATH)
     plt.close(figure)
 
-    logger.info("Churn distribution plot saved to: %s", output_path)
-    return output_path
+    return {
+        "rows": len(dataframe),
+        "columns": len(dataframe.columns),
+        "target": target,
+        "missing_values": int(dataframe.isna().sum().sum()),
+        "plot_path": str(settings.CHURN_PLOT_PATH),
+    }
 
 
 def main() -> None:
-    """Load the raw dataset and run inspection."""
-    raw_data_path = settings.RAW_DATA_PATH
-
-    if not raw_data_path.is_file():
-        raise FileNotFoundError(f"Raw dataset not found: {raw_data_path}")
-
-    logger.info("Loading raw dataset from: %s", raw_data_path)
-    dataframe = pd.read_csv(raw_data_path)
-    inspect_data(dataframe)
+    if not settings.RAW_DATA_PATH.is_file():
+        raise FileNotFoundError(f"Raw dataset not found: {settings.RAW_DATA_PATH}")
+    summary = inspect_data(pd.read_csv(settings.RAW_DATA_PATH))
+    logger.info("Data inspection completed: %s", summary)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (FileNotFoundError, ValueError, pd.errors.ParserError) as exc:
-        logger.exception("Data inspection failed: %s", exc)
-        raise SystemExit(1) from exc
+    main()

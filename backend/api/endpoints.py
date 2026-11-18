@@ -1,48 +1,79 @@
-from fastapi import APIRouter, HTTPException
+"""RetainAI API v1 endpoints."""
 
-from backend.core.ml_service import ml_service
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from backend.api.dependencies import get_ml_service
+from backend.core.exceptions import InvalidFeatureError, ModelUnavailableError
+from backend.core.ml_service import MLService
+from backend.core.retention_service import retention_service
+from backend.logger import logger
 from backend.schemas.pydantic_models import (
-    CustomerData,
     MetricsResponse,
+    ModelInfoResponse,
+    PredictionRequest,
     PredictionResponse,
 )
 
 router = APIRouter()
 
 
-@router.post("/predict", response_model=PredictionResponse)
-async def predict_customer_churn(data: CustomerData):
+@router.post(
+    "/predict",
+    response_model=PredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Predict customer churn risk",
+    responses={422: {"description": "Invalid customer features"}, 503: {"description": "Model unavailable"}},
+)
+def predict_churn(
+    request: PredictionRequest,
+    ml_service: MLService = Depends(get_ml_service),
+) -> PredictionResponse:
     try:
-        # Calculate risk score
-        risk_score = ml_service.predict_churn(data.features)
-
-        # Determine risk level and automated action
-        if risk_score >= 80:
-            level = "High"
-            action = "Trigger 20% Win-Back Discount Webhook"
-        elif risk_score >= 50:
-            level = "Medium"
-            action = "Add to Nurture Email Sequence"
-        else:
-            level = "Low"
-            action = "Monitor"
-
+        risk_score = ml_service.predict_churn(request.features.to_model_payload())
+        assessment = retention_service.assess(risk_score)
         return PredictionResponse(
+            prediction_id=uuid4(),
+            customer_id=request.customer_id,
             churn_risk_score=risk_score,
-            risk_level=level,
-            action_recommended=action
+            risk_level=assessment.risk_level,
+            recommended_action=assessment.recommended_action,
+            model_version=ml_service.artifact_version or "unknown",
         )
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(e))
+    except InvalidFeatureError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ModelUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The prediction model is temporarily unavailable.",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected prediction endpoint error.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected internal error occurred.",
+        ) from exc
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_model_metrics():
-    if not ml_service.metrics:
-        raise HTTPException(status_code=404, detail="Metrics not found.")
+def get_metrics(
+    ml_service: MLService = Depends(get_ml_service),
+) -> MetricsResponse:
+    try:
+        return MetricsResponse(
+            model_version=ml_service.artifact_version or "unknown",
+            metrics=ml_service.get_metrics(),
+        )
+    except ModelUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model metrics are temporarily unavailable.",
+        ) from exc
 
-    return MetricsResponse(
-        f1_score=ml_service.metrics.get("f1_score", 0.0),
-        classification_report=ml_service.metrics.get(
-            "classification_report", {}),
-    )
+
+@router.get("/model/info", response_model=ModelInfoResponse)
+def get_model_info(
+    ml_service: MLService = Depends(get_ml_service),
+) -> ModelInfoResponse:
+    return ModelInfoResponse.model_validate(ml_service.get_model_info())
