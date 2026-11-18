@@ -1,86 +1,660 @@
-# RetainAI: Customer Churn & Win-Back Prediction Engine
+# RetainAI: Customer Churn and Win-Back Prediction Engine
 
-RetainAI is a machine learning-based B2B SaaS MVP designed to identify at-risk e-commerce customers before they churn. By analyzing behavioral and transactional data, it calculates a real-time "Flight Risk Score," allowing marketing teams to automate targeted retention incentives. 
+RetainAI is a machine-learning-based B2B SaaS MVP designed to identify e-commerce customers who are at risk of churning. It analyzes behavioral and transactional signals, calculates a 0–100 churn-risk score, and maps that score to a retention recommendation that marketing teams can act on.
 
-This monorepo contains the machine learning pipeline, the RESTful prediction API, and the cross-platform mobile frontend.
+This monorepo contains:
 
----
+- the raw and processed datasets;
+- an exploratory data analysis and visualization workflow;
+- an XGBoost training pipeline with SMOTE-based class balancing;
+- versioned model, preprocessing, and evaluation artifacts;
+- a FastAPI prediction backend;
+- a React Native/Expo frontend that is planned for Phase 4.
 
-## 🛠 Tech Stack & Environment
-* **OS & IDE**: Ubuntu 22.04 LTS, Visual Studio Code (augmented with Ollama and the Continue extension for local AI coding assistance).
-* **Data & ML**: Python (Pandas, Scikit-learn, Imbalanced-learn/SMOTE, XGBoost).
-* **Backend Serving**: FastAPI, Uvicorn, Pydantic.
-* **Frontend Application**: React Native, Expo, NativeWind (Tailwind CSS) — *In Progress*.
-
----
-
-## 🚀 Project Status: Phases 1–3 Completed
-
-### Phase 1: Data Strategy (Completed)
-* Loaded the raw `eCommerce-dataset.csv`.
-* Handled widespread missing values across 14 numeric columns using median imputation to maintain robust distributions.
-* Performed one-hot encoding on categorical text fields (Gender, Country, City, Signup_Quarter).
-* Exported the cleaned, ML-ready dataset to `data/processed/processed_data.csv`.
-
-### Phase 2: Machine Learning Pipeline (Completed)
-* Handled the moderate class imbalance (approx. 35,000 retained vs. 14,500 churned) using SMOTE on the training split.
-* Trained an optimized XGBoost classifier (`max_depth=6`, `learning_rate=0.05`).
-* Generated evaluation metrics (F1 Score, Classification Report) on the test split.
-* Exported the trained model, feature names array, and `metrics.json` directly into the `ml_pipeline/artifacts/` directory for backend consumption.
-
-### Phase 3: Backend API (Completed)
-* Built a high-performance REST API using FastAPI.
-* Created the `MLService` singleton to load the `.pkl` and `.json` artifacts into memory securely on application startup.
-* Configured CORS middleware for seamless integration with the upcoming mobile client.
-* **Endpoints Configured:**
-  * `POST /api/predict`: Accepts a JSON payload of a customer's behavioral features, dynamically shapes it to the exact training columns, and returns a 0-100 `churn_risk_score` with an automated marketing action.
-  * `GET /api/metrics`: Returns the JSON metadata payload containing the model's F1-score and classification report.
+> **Current state:** Phases 1 and 2 are complete. Phase 3A backend implementation is complete. Phase 3B backend hardening and validation is in progress. Frontend integration should begin only after the backend API contract and automated tests are stable.
 
 ---
 
-## 💻 Local Setup & Execution Guide
+## Product Goal
 
-### 1. Repository Initialization
-Clone the repository and initialize the Python virtual environment:
+RetainAI converts customer data into an actionable retention signal:
+
+```text
+Raw customer behavior and transaction data
+                    ↓
+         Validation and preprocessing
+                    ↓
+          XGBoost churn classifier
+                    ↓
+          Churn probability (0–100)
+                    ↓
+        Risk level and retention action
+```
+
+The ML model is responsible for estimating churn probability. Risk bands and marketing recommendations are business rules layered on top of that probability and should remain independently configurable.
+
+---
+
+## Technology Stack
+
+- **Development environment:** Ubuntu 22.04 LTS and Visual Studio Code
+- **Local coding assistance:** Ollama with the Continue extension
+- **Language:** Python 3.10+
+- **Data processing:** Pandas and NumPy
+- **Visualization:** Matplotlib and Seaborn
+- **Machine learning:** Scikit-learn, Imbalanced-learn/SMOTE, and XGBoost
+- **Backend API:** FastAPI, Uvicorn, and Pydantic
+- **Testing:** Pytest
+- **Frontend:** React Native, Expo, TypeScript, and NativeWind, planned for Phase 4
+
+---
+
+## Repository Structure
+
+```text
+RetainAI/
+├── .gitignore
+├── LICENSE
+├── README.md
+├── backend/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── logger.py
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── endpoints.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   └── ml_service.py
+│   ├── ml_pipeline/
+│   │   ├── __init__.py
+│   │   ├── artifacts/
+│   │   │   ├── metrics.json
+│   │   │   ├── xgboost_model.pkl
+│   │   │   └── churn_distribution.png
+│   │   ├── notebooks/
+│   │   │   └── analysis.ipynb
+│   │   └── src/
+│   │       ├── __init__.py
+│   │       ├── data_prep.py
+│   │       └── train_model.py
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   └── pydantic_models.py
+│   └── tests/
+│       ├── __init__.py
+│       └── test_ml_services.py
+├── data/
+│   ├── raw/
+│   │   └── eCommerce_dataset.csv
+│   └── processed/
+│       └── processed_data.csv
+├── frontend/
+│   ├── App.tsx
+│   ├── app.json
+│   ├── index.ts
+│   ├── package.json
+│   ├── tailwind.config.js
+│   ├── tsconfig.json
+│   └── assets/
+└── logs/
+```
+
+Generated `__pycache__` directories and `.pyc` files are intentionally omitted from this structure and should not be committed.
+
+---
+
+## Architecture and Ownership
+
+### Data layer
+
+- `data/raw/eCommerce_dataset.csv` is the source dataset.
+- `data/processed/processed_data.csv` is regenerated by the training pipeline.
+
+### ML pipeline
+
+`backend/ml_pipeline/` owns:
+
+- data inspection and visualization;
+- cleaning and transformation;
+- train/test splitting;
+- SMOTE application on the training split only;
+- XGBoost training and evaluation;
+- model and metric artifact generation.
+
+### Backend
+
+The backend owns:
+
+- loading and validating model artifacts;
+- applying saved preprocessing metadata during inference;
+- producing churn probabilities;
+- applying retention business rules;
+- exposing prediction and model-metric endpoints.
+
+### Frontend
+
+The frontend should submit raw business/customer fields. It must not construct one-hot encoded model columns or depend on XGBoost's internal feature representation.
+
+---
+
+## Project Status
+
+### Phase 1: Data Strategy — Complete
+
+Completed work:
+
+- Loaded `data/raw/eCommerce_dataset.csv`.
+- Added dataset shape, sample, missing-value, and target-distribution inspection.
+- Added deterministic sampling for repeatable diagnostics.
+- Added churn-distribution visualization.
+- Standardized visualization output at:
+
+```text
+backend/ml_pipeline/artifacts/churn_distribution.png
+```
+
+- Applied median imputation to the configured numeric fields.
+- Applied one-hot encoding to available categorical fields:
+  - `Gender`
+  - `Country`
+  - `City`
+  - `Signup_Quarter`
+- Exported the transformed dataset to:
+
+```text
+data/processed/processed_data.csv
+```
+
+### Phase 2: Machine Learning Pipeline — Complete
+
+Completed work:
+
+- Added a stratified 80/20 train/test split.
+- Applied SMOTE only to the training split to avoid test-set leakage.
+- Added dynamic `SMOTE.k_neighbors` handling for smaller minority-class training samples.
+- Trained an `XGBClassifier` using the current MVP configuration:
+  - `n_estimators=200`
+  - `learning_rate=0.05`
+  - `max_depth=6`
+  - `subsample=0.8`
+  - `colsample_bytree=0.8`
+  - `eval_metric="logloss"`
+  - `random_state=42`
+- Added model evaluation using:
+  - F1 score
+  - precision
+  - recall
+  - ROC-AUC
+  - confusion matrix
+  - classification report
+- Added validation for empty data, missing targets, invalid target values, unusable numeric fields, and unencoded nonnumeric columns.
+- Exported the model artifact and metrics to:
+
+```text
+backend/ml_pipeline/artifacts/xgboost_model.pkl
+backend/ml_pipeline/artifacts/metrics.json
+```
+
+### Model Artifact Contract
+
+The model artifact currently contains:
+
+```python
+{
+    "model": ...,                     # fitted XGBClassifier
+    "feature_names": [...],          # exact encoded training feature order
+    "metrics": {...},                # evaluation metrics
+    "preprocessing": {
+        "numeric_medians": {...},
+        "categorical_levels": {...},
+        "raw_feature_names": [...]
+    },
+    "target_column": "Churn",
+    "model_type": "XGBClassifier",
+    "artifact_version": "1.1.0"
+}
+```
+
+This contract allows the inference service to reuse the preprocessing information produced during training.
+
+### Phase 3A: Backend API Implementation — Complete
+
+Completed work:
+
+- Built the API using FastAPI.
+- Added centralized project and artifact paths in `backend/config.py`.
+- Removed path dependence on `Path.cwd()`.
+- Added canonical paths for:
+  - raw data;
+  - processed data;
+  - model artifacts;
+  - metrics;
+  - visualization output;
+  - logs.
+- Added `MLService` to load the trained model, metrics, feature contract, and preprocessing metadata.
+- Added inference preprocessing that:
+  - validates raw field names;
+  - converts numeric values;
+  - applies saved training medians;
+  - encodes categoricals;
+  - handles unseen categorical values without adding unsupported model features;
+  - aligns the input to the exact trained feature order;
+  - rejects remaining nonnumeric model features.
+- Added artifact corruption and compatibility checks.
+- Added FastAPI CORS configuration for local frontend integration.
+
+Configured API routes currently include:
+
+- `GET /`
+- `GET /docs`
+- `GET /openapi.json`
+- `GET /api/metrics`
+- `POST /api/predict`
+
+### Phase 3B: Backend Hardening and Validation — In Progress
+
+Current work:
+
+- Added `backend/tests/test_ml_services.py`.
+- Added integration coverage for:
+  - model and metrics artifact existence;
+  - artifact version validation;
+  - preprocessing metadata loading;
+  - raw-to-model feature transformation;
+  - exact feature count and order;
+  - numeric-only model input;
+  - valid churn probability generation;
+  - saved-median imputation;
+  - unseen categorical values;
+  - unknown-field rejection;
+  - empty and invalid payload rejection;
+  - metric presence and valid ranges.
+
+Remaining before Phase 3B is complete:
+
+- Run and stabilize the complete MLService test suite.
+- Replace the generic prediction request dictionary with a strongly typed Pydantic customer-input schema.
+- Add request range and type validation.
+- Separate churn prediction from retention-policy rules.
+- Improve API exception mapping:
+  - `422` for invalid client input;
+  - `503` when the model is unavailable;
+  - generic `500` responses for unexpected server failures.
+- Add endpoint tests for health, metrics, prediction, and validation failures.
+- Validate the application under Uvicorn.
+- Freeze the Backend API v1 request and response contract.
+
+---
+
+## Local Setup
+
+### 1. Clone and enter the repository
+
 ```bash
-git clone <your-repo-url>
-cd retain-ai-mvp
+git clone <your-repository-url>
+cd RetainAI
+```
+
+All Python commands in this README assume the current directory is the `RetainAI` project root.
+
+### 2. Create and activate a virtual environment
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
+```
+
+On Windows PowerShell:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+### 3. Install backend and ML dependencies
+
+```bash
+python -m pip install --upgrade pip
 pip install -r backend/requirements.txt
 ```
 
-### 2. Run the ML Pipeline
-To retrain the model and regenerate the serialized artifacts:
-```bash
-cd ml_pipeline/src
-# 1. Clean data and engineer features
-python data_prep.py
-# 2. Apply SMOTE, train XGBoost, and export artifacts
-python train_model.py
-```
+Ensure `pytest` is present in the requirements file or install it for local validation:
 
-### 3. Start the FastAPI Backend
-Serve the trained model locally:
 ```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+pip install pytest
 ```
-*Access the auto-generated API documentation and test the endpoints at:* `http://localhost:8000/docs`
 
 ---
 
-## 🗺 Roadmap: Upcoming Phases
+## Data Inspection
 
-### Phase 4: Frontend GUI (React Native + NativeWind)
-* **Goal**: Build a cross-platform mobile dashboard to consume the FastAPI endpoints.
-* **Tasks**:
-  * Scaffold custom UI components (Risk Score Cards, User List, Metrics Dashboard).
-  * Configure Axios to fetch real-time predictions from `POST /api/predict` and render "High Risk" flags.
-  * Implement Tailwind utility classes via NativeWind for a clean, modern SaaS aesthetic.
+Run from the project root:
 
-### Phase 5: Refinement & Polish
-* **Goal**: End-to-end local testing and preparation for deployment.
-* **Tasks**:
-  * Ensure API edge-case handling (e.g., missing keys in the JSON payload gracefully defaulting to medians/zeros).
-  * Tune mobile UI responsiveness across different simulated device screens.
-  * Containerize the backend with Docker for seamless production deployment.
+```bash
+python -m backend.ml_pipeline.src.data_prep
+```
+
+Expected input:
+
+```text
+data/raw/eCommerce_dataset.csv
+```
+
+Expected output:
+
+```text
+backend/ml_pipeline/artifacts/churn_distribution.png
+```
+
+The command also logs dataset shape, deterministic sample records, missing-value counts, and target distribution.
+
+---
+
+## Model Training
+
+Run the complete preprocessing and training workflow from the project root:
+
+```bash
+python -m backend.ml_pipeline.src.train_model
+```
+
+The command performs:
+
+```text
+Raw CSV
+  → schema and target validation
+  → numeric conversion and median imputation
+  → categorical encoding
+  → processed CSV export
+  → stratified train/test split
+  → SMOTE on training data only
+  → XGBoost training
+  → test-set evaluation
+  → artifact export
+```
+
+Expected outputs:
+
+```text
+data/processed/processed_data.csv
+backend/ml_pipeline/artifacts/xgboost_model.pkl
+backend/ml_pipeline/artifacts/metrics.json
+```
+
+Whenever preprocessing or artifact structure changes, retrain the model before starting the backend.
+
+---
+
+## Verifying the Model Service
+
+After training, confirm that the artifact and preprocessing metadata load:
+
+```bash
+python -c "from backend.core.ml_service import ml_service; print('Artifact version:', ml_service.artifact_version); print('Raw features:', len(ml_service.raw_feature_names)); print('Model features:', len(ml_service.feature_names)); print('Numeric medians:', len(ml_service.numeric_medians)); print('Categorical fields:', list(ml_service.categorical_levels.keys()))"
+```
+
+Expected artifact version:
+
+```text
+1.1.0
+```
+
+The raw/model feature counts depend on the dataset and categorical values present during training.
+
+---
+
+## Running Tests
+
+Run the MLService integration tests from the project root:
+
+```bash
+pytest backend/tests/test_ml_services.py -v --tb=short
+```
+
+For the complete backend test suite, once endpoint tests are added:
+
+```bash
+pytest backend/tests -v --tb=short
+```
+
+The MLService test suite reads the real trained model artifact and raw dataset. Run the training command before running these tests.
+
+---
+
+## Starting the FastAPI Backend
+
+Start Uvicorn from the project root:
+
+```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Useful local URLs:
+
+- API root: [http://localhost:8000/](http://localhost:8000/)
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- OpenAPI schema: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+- Model metrics: [http://localhost:8000/api/metrics](http://localhost:8000/api/metrics)
+
+Do not treat Uvicorn startup alone as backend validation. Phase 3B is complete only after automated service and endpoint tests pass and a valid prediction succeeds through `POST /api/predict`.
+
+---
+
+## Prediction Flow
+
+The intended API flow is:
+
+```text
+Raw customer JSON
+        ↓
+Pydantic request validation
+        ↓
+MLService raw-field validation
+        ↓
+Saved median imputation
+        ↓
+Categorical encoding
+        ↓
+Exact trained-feature alignment
+        ↓
+XGBoost predict_proba()
+        ↓
+Churn-risk score (0–100)
+        ↓
+Retention policy and recommendation
+        ↓
+API response
+```
+
+The frontend must send raw customer fields. It must not send pre-encoded columns such as city or country dummy variables.
+
+---
+
+## Development Roadmap
+
+### Phase 3B: Backend Hardening and API Freeze — Current
+
+**Goal:** Prove the ML and API layers are correct before connecting the frontend.
+
+Tasks:
+
+1. Run and stabilize `test_ml_services.py`.
+2. Define a strongly typed Pydantic `CustomerFeatures` model using the actual raw feature contract.
+3. Add field ranges and domain validation where supported by the dataset.
+4. Extract retention thresholds and recommended actions from API endpoint code into a dedicated retention service.
+5. Add deterministic boundary tests for risk rules, including values around `50` and `80` if those remain the configured thresholds.
+6. Add FastAPI tests using `TestClient` for:
+   - health/root response;
+   - metrics response;
+   - successful prediction;
+   - invalid field types;
+   - missing optional values;
+   - unknown fields;
+   - unavailable model;
+   - sanitized server errors.
+7. Run Uvicorn and verify the complete request path.
+8. Freeze Backend API v1 before frontend integration.
+
+**Exit criteria:**
+
+- MLService tests pass.
+- API endpoint tests pass.
+- Raw customer prediction succeeds through FastAPI.
+- Invalid requests return predictable status codes.
+- Request and response schemas are documented in Swagger UI.
+- Frontend no longer needs knowledge of encoded model columns.
+
+### Phase 4: Frontend GUI
+
+**Goal:** Build a cross-platform retention dashboard against the frozen Backend API v1 contract.
+
+Planned work:
+
+- Confirm Expo and React Native project startup.
+- Add environment-driven API base URL configuration.
+- Add a typed API client for `/api/predict` and `/api/metrics`.
+- Build the following UI modules:
+  - customer-input form;
+  - customer-risk list;
+  - churn-risk score card;
+  - Low/Medium/High risk visual state;
+  - recommended retention action;
+  - model-metrics view;
+  - loading, empty, error, and retry states.
+- Use NativeWind for a consistent responsive design system.
+- Ensure accessibility for labels, color contrast, and touch targets.
+- Test against Android/iOS simulators or the selected Phase 4 target platform.
+
+**Exit criteria:**
+
+- A user can submit raw customer data without knowing ML internals.
+- The UI renders a valid score, risk level, and recommendation.
+- API errors are displayed without exposing backend internals.
+- Frontend integration tests cover success and failure states.
+
+### Phase 5: Production Refinement and Deployment
+
+**Goal:** Turn the validated MVP into an observable, secure, deployment-ready service.
+
+Planned work:
+
+#### Model and data quality
+
+- Add dataset/schema versioning.
+- Add model version and training timestamp metadata.
+- Add probability-threshold evaluation and calibration.
+- Review precision/recall trade-offs with business cost assumptions.
+- Add feature importance or SHAP-based explanations.
+- Add drift checks for important numeric and categorical inputs.
+- Define a retraining trigger and model-promotion process.
+
+#### Backend production readiness
+
+- Replace wildcard CORS with explicit allowed origins.
+- Move deployment-specific configuration to environment variables using `pydantic-settings`.
+- Move model initialization into FastAPI lifespan handling.
+- Add `/api/health` and `/api/readiness` endpoints.
+- Add structured logging and request correlation IDs.
+- Ensure public errors do not expose stack traces or file paths.
+- Add API versioning and backward-compatibility rules.
+
+#### Security and reliability
+
+- Add authentication and authorization if customer data is exposed beyond a local demo.
+- Define secret management for deployment.
+- Add request-size controls and rate limiting.
+- Add dependency and container vulnerability scanning.
+- Define data-retention and privacy rules before using real customer data.
+
+#### Packaging and deployment
+
+- Split API runtime dependencies from ML training and development dependencies.
+- Add Docker support for the backend.
+- Add CI tasks for linting, testing, artifact validation, and image build.
+- Deploy to the selected hosting platform.
+- Add production monitoring for latency, errors, request volume, and model behavior.
+
+**Exit criteria:**
+
+- Reproducible container build.
+- Automated test and deployment pipeline.
+- Explicit production configuration.
+- Health/readiness monitoring.
+- Versioned and auditable model artifact.
+- Defined rollback path for both API and model versions.
+
+---
+
+## Known Limitations
+
+- Phase 3B validation is not yet complete until all MLService and API tests pass.
+- The current serialized artifact uses Python pickle. Only load artifacts produced and controlled by this project because untrusted pickle files are unsafe.
+- The current categorical transformation is metadata-driven but still based on training-time dummy encoding. A future improvement may serialize a fitted Scikit-learn `Pipeline` or `ColumnTransformer` with the model for a single atomic preprocessing/model artifact.
+- The current CORS wildcard is suitable only for local development.
+- Retention recommendations are business rules and have not yet been validated through an experiment or cost-impact analysis.
+- The current model metrics describe the held-out test split and do not guarantee production performance.
+- The frontend is not yet integrated with the hardened backend contract.
+
+---
+
+## Git Hygiene
+
+At minimum, `.gitignore` should exclude:
+
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Editor and OS files
+.vscode/
+.DS_Store
+```
+
+Decide explicitly whether the following generated or potentially large files belong in Git:
+
+```text
+data/processed/processed_data.csv
+backend/ml_pipeline/artifacts/xgboost_model.pkl
+backend/ml_pipeline/artifacts/metrics.json
+backend/ml_pipeline/artifacts/churn_distribution.png
+```
+
+For larger or frequently changing model artifacts, use an artifact registry or Git LFS rather than normal Git history.
+
+---
+
+## Contribution Workflow
+
+For every technical issue, follow the RetainAI hardening sequence:
+
+```text
+Identify
+  → reproduce
+  → make one focused fix
+  → run targeted tests
+  → run regression tests
+  → document the change
+  → freeze the component
+  → move to the next issue
+```
+
+Avoid combining backend contract changes with frontend implementation in the same step. The API contract should be proven and frozen before Phase 4 depends on it.
+
+---
+
+## License
+
+See `LICENSE` for licensing information.

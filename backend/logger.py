@@ -1,13 +1,19 @@
 import logging
 import os
+import sys
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
+
+sys.path.append(str(Path.cwd()))
+
+from backend.config import settings
 
 now = datetime.now()
 date = now.strftime("%Y-%m-%d")
 
 # Ensure 'logs' folder exists
-log_dir = "logs"
+log_dir = f"{settings.BASE_DIR}/logs"
 os.makedirs(log_dir, exist_ok=True)
 
 # Log file path
