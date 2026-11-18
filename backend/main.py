@@ -1,12 +1,13 @@
 """FastAPI application for RetainAI."""
+
 import logging
+import secrets
 from contextlib import asynccontextmanager
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.config import API_PREFIX, APP_NAME, APP_VERSION, CORS_ORIGINS
+from backend.config import APP_NAME, APP_VERSION, CORS_ORIGINS
 from backend.core.ml_service import ml_service
 from backend.schemas.pydantic_models import (
     HealthResponse,
@@ -16,7 +17,8 @@ from backend.schemas.pydantic_models import (
     PredictionResponse,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("retainai")
 
 
@@ -25,7 +27,7 @@ async def lifespan(_: FastAPI):
     try:
         ml_service.load()
         logger.info("Model loaded: version %s", ml_service.model_version)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         # The API can still expose docs and health before the first training run.
         logger.warning("Model is not ready: %s", exc)
     yield
@@ -43,7 +45,11 @@ app.add_middleware(
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"service": APP_NAME, "version": APP_VERSION, "docs": "/docs"}
+    return {
+        "service": APP_NAME,
+        "version": APP_VERSION,
+        "docs": "to test API, visit /docs"
+    }
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -64,10 +70,15 @@ def _risk_guidance(score: float) -> tuple[str, str]:
     return "low", "Continue normal engagement and monitor behavior."
 
 
-@app.post(f"{API_PREFIX}/predict", response_model=PredictionResponse)
+def make_id(project: str, label: str) -> str:
+    return f"{project}_{label}_{secrets.token_hex(3)}"
+
+
+@app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest) -> PredictionResponse:
     try:
-        probability = ml_service.predict_churn(request.features.to_model_payload())
+        probability = ml_service.predict_churn(
+            request.features.to_model_payload())
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -76,7 +87,7 @@ def predict(request: PredictionRequest) -> PredictionResponse:
     score = round(probability * 100, 2)
     risk_level, action = _risk_guidance(score)
     return PredictionResponse(
-        prediction_id=uuid4(),
+        prediction_id=make_id("retainai", "pred"),
         customer_id=request.customer_id,
         churn_risk_score=score,
         risk_level=risk_level,
@@ -85,7 +96,7 @@ def predict(request: PredictionRequest) -> PredictionResponse:
     )
 
 
-@app.get(f"{API_PREFIX}/metrics", response_model=MetricsResponse)
+@app.get("/metrics", response_model=MetricsResponse)
 def metrics() -> MetricsResponse:
     try:
         values = ml_service.get_metrics()
@@ -94,6 +105,6 @@ def metrics() -> MetricsResponse:
     return MetricsResponse(model_version=ml_service.model_version, metrics=values)
 
 
-@app.get(f"{API_PREFIX}/model/info", response_model=ModelInfoResponse)
+@app.get("/modelInfo", response_model=ModelInfoResponse)
 def model_info() -> ModelInfoResponse:
     return ModelInfoResponse(**ml_service.get_model_info())

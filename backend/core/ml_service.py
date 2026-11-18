@@ -39,7 +39,7 @@ class MLService:
 
         artifact = joblib.load(self.model_path)
         if not isinstance(artifact, dict):
-            raise ValueError("Model artifact must be a dictionary.")
+            raise ValueError("Model artifact must be a dictionary.")  # noqa: TRY004
 
         required = {"pipeline", "raw_features", "version"}
         missing = required - set(artifact)

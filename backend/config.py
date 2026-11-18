@@ -2,8 +2,7 @@
 from pathlib import Path
 
 APP_NAME = "RetainAI API"
-APP_VERSION = "2.0.0"
-API_PREFIX = "/api"
+APP_VERSION = "0.0.1"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RAW_DATA_PATH = PROJECT_ROOT / "data" / "raw" / "eCommerce_dataset.csv"

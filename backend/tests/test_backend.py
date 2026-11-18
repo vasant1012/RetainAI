@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -63,7 +61,7 @@ def test_api_predict(monkeypatch: pytest.MonkeyPatch, trained_service: MLService
         assert health.json()["model_ready"] is True
 
         response = client.post(
-            "/api/predict",
+            "/predict",
             json={
                 "customer_id": "CUST-TEST",
                 "features": {"Age": 45, "Gender": "Female"},

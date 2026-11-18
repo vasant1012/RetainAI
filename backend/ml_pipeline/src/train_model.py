@@ -31,6 +31,7 @@ from backend.config import (
     RAW_DATA_PATH,
     ensure_directories,
 )
+from backend.logger import logger
 
 TARGET_CANDIDATES = ("Churned", "Churn")
 ID_CANDIDATES = ("Customer_ID", "CustomerID", "customer_id", "ID", "Id")
@@ -39,6 +40,7 @@ ID_CANDIDATES = ("Customer_ID", "CustomerID", "customer_id", "ID", "Id")
 def _target_name(dataframe: pd.DataFrame) -> str:
     target = next((name for name in TARGET_CANDIDATES if name in dataframe), None)
     if not target:
+        logger.error("Dataset must contain a 'Churned' or 'Churn' column.")
         raise ValueError("Dataset must contain a 'Churned' or 'Churn' column.")
     return target
 
@@ -62,21 +64,25 @@ def train_and_save(
 ) -> dict[str, Any]:
     """Train from a raw dataframe and save a reusable inference pipeline."""
     if dataframe.empty:
+        logger.error("Training dataset is empty.")
         raise ValueError("Training dataset is empty.")
 
     target = _target_name(dataframe)
     y = pd.to_numeric(dataframe[target], errors="raise").astype(int)
     if set(y.unique()) != {0, 1}:
+        logger.error("Target must contain both classes 0 and 1.")
         raise ValueError("Target must contain both classes 0 and 1.")
 
     drop_columns = [target] + [name for name in ID_CANDIDATES if name in dataframe]
     X = dataframe.drop(columns=drop_columns).copy()
     if X.empty:
+        logger.error("No model features remain after removing target and ID columns.")
         raise ValueError("No model features remain after removing target and ID columns.")
 
     categorical = X.select_dtypes(include=["object", "string", "category"]).columns.tolist()
     numeric = [name for name in X.columns if name not in categorical]
     if not numeric and not categorical:
+        logger.error("No usable model features were found.")
         raise ValueError("No usable model features were found.")
 
     transformers = []
@@ -136,6 +142,7 @@ def train_and_save(
         random_state=42,
         stratify=y,
     )
+    logger.info(f"Training with {len(X_train)} samples and testing with {len(X_test)} samples.")
     pipeline.fit(X_train, y_train)
 
     probabilities = pipeline.predict_proba(X_test)[:, 1]
@@ -179,9 +186,9 @@ def main() -> None:
         raise FileNotFoundError(f"Dataset not found: {RAW_DATA_PATH}")
     ensure_directories()
     artifact = train_and_save(pd.read_csv(RAW_DATA_PATH))
-    print(f"Saved model to {MODEL_PATH}")
-    print(f"Saved metrics to {METRICS_PATH}")
-    print(f"Model features: {len(artifact['raw_features'])}")
+    logger.info(f"Saved model to {MODEL_PATH}")
+    logger.info(f"Saved metrics to {METRICS_PATH}")
+    logger.info(f"Model features: {len(artifact['raw_features'])}")
 
 
 if __name__ == "__main__":

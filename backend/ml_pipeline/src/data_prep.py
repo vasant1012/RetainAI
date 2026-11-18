@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 from backend.config import DATA_SUMMARY_PATH, RAW_DATA_PATH, ensure_directories
+from backend.logger import logger
 
 TARGET_CANDIDATES = ("Churned", "Churn")
 
@@ -37,7 +38,7 @@ def main() -> None:
     ensure_directories()
     summary = build_summary(pd.read_csv(RAW_DATA_PATH))
     DATA_SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"Saved dataset summary to {DATA_SUMMARY_PATH}")
+    logger.info(f"Saved dataset summary to {DATA_SUMMARY_PATH}")
 
 
 if __name__ == "__main__":
