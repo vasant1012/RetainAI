@@ -1,7 +1,7 @@
 """FastAPI application for RetainAI."""
 
 import logging
-import secrets
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -70,10 +70,6 @@ def _risk_guidance(score: float) -> tuple[str, str]:
     return "low", "Continue normal engagement and monitor behavior."
 
 
-def make_id(project: str, label: str) -> str:
-    return f"{project}_{label}_{secrets.token_hex(3)}"
-
-
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest) -> PredictionResponse:
     try:
@@ -87,7 +83,7 @@ def predict(request: PredictionRequest) -> PredictionResponse:
     score = round(probability * 100, 2)
     risk_level, action = _risk_guidance(score)
     return PredictionResponse(
-        prediction_id=make_id("retainai", "pred"),
+        prediction_id=uuid.uuid4(),
         customer_id=request.customer_id,
         churn_risk_score=score,
         risk_level=risk_level,
